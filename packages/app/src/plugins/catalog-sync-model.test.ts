@@ -127,6 +127,8 @@ function harness() {
   const registry = new PluginRegistry({
     localeSource: { getLocale: () => "en", subscribe: () => () => {} },
     version: appPackage.version,
+    // These tests cover catalog sync, not the trust gate: approve all.
+    trust: { isApproved: () => true, hasApprovalForPlugin: () => false },
     createRuntime(installation) {
       evaluations++;
       return {
@@ -169,6 +171,11 @@ function harness() {
       connected: true,
       supported: true,
       registry,
+      trust: {
+        hashBundle: async (bundle) => bundle,
+        hydrate: async () => {},
+        subscribe: () => () => {},
+      },
       ...options,
     });
     cleanups.push(stop);

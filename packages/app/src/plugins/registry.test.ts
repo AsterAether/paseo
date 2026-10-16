@@ -2,6 +2,7 @@ import appPackage from "../../package.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { pluginRegistry as registry } from "./registry";
+import { pluginTrustStore } from "./trust-store";
 
 const audio = { play: async () => 0 };
 
@@ -29,11 +30,24 @@ const pluginRegistry = {
     catalog: Parameters<typeof registry.installCatalog>[1],
     options: { replacePluginId?: string; client?: DaemonClient } = {},
   ) {
-    return registry.installCatalog(
-      serverId,
-      catalog.map((entry) => ({ ...entry, requirements: { paseo: `>=${appPackage.version}` } })),
-      { client: daemonClient, ...options, audio },
-    );
+    const entries = catalog.map((entry) => ({
+      ...entry,
+      requirements: { paseo: `>=${appPackage.version}` },
+    }));
+    // These tests exercise registry mechanics, not the trust gate: pre-approve
+    // every bundle (keyed by its own text as the hash) so installs evaluate as
+    // before. approve() updates the in-memory view synchronously.
+    const hashes: Record<string, string> = {};
+    for (const entry of entries) {
+      hashes[entry.id] = entry.clientBundle ?? "";
+      if (entry.clientBundle) void pluginTrustStore.approve(serverId, entry.id, entry.clientBundle);
+    }
+    return registry.installCatalog(serverId, entries, {
+      client: daemonClient,
+      ...options,
+      audio,
+      hashes,
+    });
   },
 };
 

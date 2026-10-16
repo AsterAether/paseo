@@ -4,7 +4,15 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { pluginRegistry } from "./registry";
-import { syncPluginCatalog } from "./catalog-sync-model";
+import { syncPluginCatalog, type CatalogTrust } from "./catalog-sync-model";
+import { pluginTrustStore } from "./trust-store";
+import { hashClientBundle } from "./bundle-hash";
+
+const trust: CatalogTrust = {
+  hashBundle: hashClientBundle,
+  hydrate: () => pluginTrustStore.hydrate(),
+  subscribe: pluginTrustStore.subscribe,
+};
 
 export function PluginCatalogSync({
   serverId,
@@ -26,6 +34,7 @@ export function PluginCatalogSync({
         connected,
         supported,
         registry: pluginRegistry,
+        trust,
       }),
     [audio, client, connected, serverId, supported],
   );
