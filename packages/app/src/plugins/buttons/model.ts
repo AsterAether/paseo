@@ -21,6 +21,8 @@ export interface RegisteredPluginButton {
   key: number;
   id: string;
   installation: InstalledPlugin;
+  /** The host whose workspace shows the button: the installation's unless the plugin named one. */
+  serverId: string;
   placement: ButtonPlacement;
   context: PluginButtonContext;
   button: ResolvedPluginButton;
@@ -85,9 +87,11 @@ export class PluginButtonStore {
   ): PluginButtonRegistration<PluginText> {
     const id = requireButtonId(input.id);
     if (!context.workspaceId.trim()) throw new Error("Plugin button needs a workspace");
+    const serverId = input.serverId?.trim() || installation.serverId;
     const duplicate = this.entries.some(
       (entry) =>
         entry.installation === installation &&
+        entry.serverId === serverId &&
         entry.placement === placement &&
         entry.id === id &&
         entry.context.workspaceId === context.workspaceId &&
@@ -104,6 +108,7 @@ export class PluginButtonStore {
         key,
         id,
         installation,
+        serverId,
         placement,
         context,
         button: initialButton,
@@ -175,7 +180,7 @@ export function buttonMatches(
   agentId: string | null,
 ): boolean {
   if (
-    entry.installation.serverId !== serverId ||
+    entry.serverId !== serverId ||
     entry.context.workspaceId !== workspaceId ||
     !entry.button.visible
   )

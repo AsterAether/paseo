@@ -195,4 +195,21 @@ describe("plugin panel tab identity", () => {
     expect(workspace).toBe("plugin_workspace_6_review_7_details");
     expect(agent).toBe("plugin_agent_6_review_7_details_7_agent-1");
   });
+
+  it("keeps the rendering host apart from the workspace's own plugin", () => {
+    const own = {
+      kind: "plugin",
+      pluginId: "review",
+      panelId: "details",
+      context: "workspace",
+    } as const;
+    const routed = { ...own, pluginServerId: " host-a " };
+
+    expect(normalizeWorkspaceTabTarget(routed)).toEqual({ ...own, pluginServerId: "host-a" });
+    expect(normalizeWorkspaceTabTarget({ ...own, pluginServerId: " " })).toEqual(own);
+    expect(workspaceTabTargetsEqual(own, { ...own, pluginServerId: "host-a" })).toBe(false);
+    expect(buildDeterministicWorkspaceTabId({ ...own, pluginServerId: "host-a" })).toBe(
+      "plugin_workspace_6_review_7_details_6_host-a",
+    );
+  });
 });

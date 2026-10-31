@@ -393,12 +393,13 @@ function createButtonView({
     environment: {
       installation: entry.installation,
       toast,
-      state: createPluginClientStateSource(entry.installation.serverId),
+      // The workspace's host, which a plugin may name beside its own.
+      state: createPluginClientStateSource(entry.serverId),
     },
     props: {
       ...entry.context,
       theme,
-      host: { id: entry.installation.serverId, label: hostLabel },
+      host: { id: entry.serverId, label: hostLabel },
       layout: { compact, platform: resolvePluginPlatform() },
     },
   };
@@ -450,7 +451,7 @@ function useMenuButtonView(entry: RegisteredPluginButton, theme: PluginTheme): B
   const toast = useToast();
   const compact = useIsCompactFormFactor();
   const hosts = useHosts();
-  const serverId = entry.installation.serverId;
+  const serverId = entry.serverId;
   const hostLabel = hosts.find((host) => host.serverId === serverId)?.label ?? serverId;
   return useMemo(
     () => createButtonView({ entry, client, toast, compact, hostLabel, theme }),

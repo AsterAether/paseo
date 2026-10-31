@@ -17,7 +17,6 @@ export function createPluginClientRuntime(
   installation: InstalledPlugin,
   audio: Pick<AudioEngine, "play">,
 ): PluginClientRuntime {
-  const state = createPluginClientStateSource(installation.serverId);
   const capabilities = createPluginCapabilities(
     installation,
     createPluginNavigation({ serverId: installation.serverId, workspaceId: null }),
@@ -34,21 +33,33 @@ export function createPluginClientRuntime(
       return pluginButtonStore.addHeaderButton(installation, contribution);
     },
     openPanel(panelId, options) {
-      openClientPanel({ installation, state, panelId, options });
+      openClientPanel({ installation, panelId, options });
     },
   };
 }
 
 function openClientPanel(input: {
   installation: InstalledPlugin;
-  state: ReturnType<typeof createPluginClientStateSource>;
   panelId: string;
   options: PluginClientOpenPanelOptions;
 }): void {
-  const { installation, state, panelId, options } = input;
+  const { installation, panelId, options } = input;
   const workspaceId = options.workspaceId.trim();
   const agentId = options.agentId?.trim();
-  const navigation = createPluginNavigation({ serverId: installation.serverId, workspaceId });
+  // The workspace may live on another configured host; the panel still renders from this plugin.
+  const serverId = options.serverId?.trim() || installation.serverId;
+  if (
+    !getHostRuntimeStore()
+      .getHosts()
+      .some((host) => host.serverId === serverId)
+  )
+    throw new Error(`Unknown Paseo host: ${serverId}`);
+  const state = createPluginClientStateSource(serverId);
+  const navigation = createPluginNavigation({
+    serverId,
+    workspaceId,
+    pluginServerId: installation.serverId,
+  });
   const action = agentId
     ? createPluginAgentActionContext({
         plugin: installation,

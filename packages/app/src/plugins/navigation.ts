@@ -9,8 +9,14 @@ import type { PluginNavigation } from "./actions";
 export function createPluginNavigation(input: {
   serverId: string;
   workspaceId: string | null;
+  /** The installation's host, when its panels open in another host's workspace. */
+  pluginServerId?: string;
 }): PluginNavigation {
   const { serverId, workspaceId } = input;
+  const owner =
+    input.pluginServerId && input.pluginServerId !== serverId
+      ? { pluginServerId: input.pluginServerId }
+      : {};
   function placement(location: PluginPanelLocation) {
     if (location !== "explorer") return undefined;
     if (!workspaceId) throw new Error("No active workspace");
@@ -33,7 +39,7 @@ export function createPluginNavigation(input: {
       navigateToWorkspace({
         serverId,
         workspaceId,
-        target: { kind: "plugin", pluginId, panelId, context: "workspace" },
+        target: { kind: "plugin", pluginId, panelId, ...owner, context: "workspace" },
         placement: placement(location),
       });
     },
@@ -42,7 +48,7 @@ export function createPluginNavigation(input: {
       navigateToWorkspace({
         serverId,
         workspaceId,
-        target: { kind: "plugin", pluginId, panelId, context: "agent", agentId },
+        target: { kind: "plugin", pluginId, panelId, ...owner, context: "agent", agentId },
         placement: placement(location),
       });
     },
