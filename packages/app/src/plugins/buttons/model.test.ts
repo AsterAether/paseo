@@ -89,6 +89,22 @@ describe("plugin buttons", () => {
     expect(buttons.getSnapshot().map((entry) => entry.placement)).toEqual(["composer"]);
   });
 
+  it("shows a button in the workspace of the host the plugin names", () => {
+    const buttons = store();
+    const plugin = installation();
+    const contribution = { id: "review", workspaceId: "workspace", button: button() };
+    buttons.addHeaderButton(plugin, { ...contribution, serverId: " host-b " });
+    const [routed] = buttons.getSnapshot();
+    expect(routed.serverId).toBe("host-b");
+    expect(buttonMatches(routed, "host-b", "workspace", null)).toBe(true);
+    expect(buttonMatches(routed, "host-a", "workspace", null)).toBe(false);
+    expect(() => buttons.addHeaderButton(plugin, contribution)).not.toThrow();
+    expect(buttons.getSnapshot()[1].serverId).toBe("host-a");
+    expect(() => buttons.addHeaderButton(plugin, { ...contribution, serverId: "host-b" })).toThrow(
+      "Duplicate plugin button: review",
+    );
+  });
+
   it("rejects duplicates within a target and validates updates atomically", () => {
     const buttons = store();
     const plugin = installation();

@@ -194,6 +194,11 @@ export interface PluginFilePanelContribution<Text extends PluginText = string> {
 export interface PluginClientOpenPanelOptions extends PluginOpenPanelOptions {
   workspaceId: string;
   agentId?: string;
+  /**
+   * The configured host that owns the workspace, from `hosts`; this plugin's host when omitted.
+   * The panel still renders from this plugin, with `host` naming the workspace's host.
+   */
+  serverId?: string;
 }
 
 // COMPAT(pluginSidebarAliases): added in v0.11.0, remove after 2027-03-29
