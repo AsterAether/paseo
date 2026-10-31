@@ -37,6 +37,7 @@ vi.mock("../icons", () => ({
 }));
 
 import { pluginRegistry } from "../registry";
+import { pluginTrustStore } from "../trust-store";
 import { PluginTimelineItemView } from "./view";
 
 const audio = { play: async () => 0 };
@@ -119,12 +120,14 @@ afterEach(() => {
 
 describe("PluginTimelineItemView", () => {
   it("validates and renders the matching plugin component", async () => {
+    void pluginTrustStore.approve("host-1", "reports", bundle);
     pluginRegistry.installCatalog(
       "host-1",
       [{ id: "reports", requirements: { paseo: `>=${appPackage.version}` }, clientBundle: bundle }],
       {
         client: daemonClient,
         audio,
+        hashes: { reports: bundle },
       },
     );
 
@@ -143,6 +146,7 @@ describe("PluginTimelineItemView", () => {
   it("contains renderer crashes to one timeline item", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    void pluginTrustStore.approve("host-1", "reports", failingBundle);
     pluginRegistry.installCatalog(
       "host-1",
       [
@@ -155,6 +159,7 @@ describe("PluginTimelineItemView", () => {
       {
         client: daemonClient,
         audio,
+        hashes: { reports: failingBundle },
       },
     );
     const container = document.createElement("div");
@@ -181,6 +186,7 @@ describe("PluginTimelineItemView", () => {
   it("recovers when a streaming item's data changes", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    void pluginTrustStore.approve("host-1", "reports", recoveringBundle);
     pluginRegistry.installCatalog(
       "host-1",
       [
@@ -193,6 +199,7 @@ describe("PluginTimelineItemView", () => {
       {
         client: daemonClient,
         audio,
+        hashes: { reports: recoveringBundle },
       },
     );
     const container = document.createElement("div");
@@ -306,6 +313,7 @@ it("a renderer releases its observation on the plugin's client when it crashes, 
   const updates: unknown[] = [];
   survivor.subscribe({ snapshot: () => {}, update: (message) => updates.push(message) });
   await survivor.ready;
+  void pluginTrustStore.approve("host-1", "reports", liveBundle);
   pluginRegistry.installCatalog(
     "host-1",
     [
@@ -315,7 +323,7 @@ it("a renderer releases its observation on the plugin's client when it crashes, 
         clientBundle: liveBundle,
       },
     ],
-    { client, audio },
+    { client, audio, hashes: { reports: liveBundle } },
   );
   const container = document.createElement("div");
   containers.push(container);

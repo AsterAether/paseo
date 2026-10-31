@@ -38,6 +38,8 @@ function registry(
   const plugins = new PluginRegistry({
     localeSource,
     version: "0.8.0",
+    // These tests cover lifecycle mechanics, not the trust gate: approve all.
+    trust: { isApproved: () => true, hasApprovalForPlugin: () => false },
     createRuntime: (installation) => {
       setupClients.set(installation.id, installation.paseo);
       return {

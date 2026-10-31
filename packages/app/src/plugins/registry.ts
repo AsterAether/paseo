@@ -9,9 +9,27 @@ import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirement
 import { resolveAppVersion } from "@/utils/app-version";
 import { createPluginClientRuntime } from "./client-runtime";
 import { runPluginClientBundle } from "./evaluate";
+import { pluginTrustStore, type PluginTrustGate } from "./trust-store";
 import type { InstalledPlugin } from "./types";
 
 type CatalogPlugin = Awaited<ReturnType<DaemonClient["getPluginCatalog"]>>[number];
+
+/**
+ * A plugin whose client bundle the user has not approved for its host, so the
+ * registry refused to evaluate it. `changed` is true when a *different* bundle
+ * for this `(serverId, pluginId)` was approved before — the plugin's code
+ * changed and the old approval no longer covers it.
+ */
+export interface PendingPluginApproval {
+  serverId: string;
+  pluginId: string;
+  hash: string;
+  changed: boolean;
+}
+
+function pendingKey(serverId: string, pluginId: string): string {
+  return `${serverId}\u0000${pluginId}`;
+}
 
 export class PluginRegistry {
   private readonly byHost = new Map<string, InstalledPlugin[]>();
@@ -21,12 +39,18 @@ export class PluginRegistry {
   private readonly evaluationErrors = new Map<string, string>();
   /** The client each host's installations were bound to; their Paseo API and RPCs call it. */
   private readonly clientByHost = new Map<string, DaemonClient>();
+  /** Keyed `serverId\0pluginId` → the unapproved bundle blocking evaluation. */
+  private readonly pendingByKey = new Map<string, PendingPluginApproval>();
+  /** Triples `serverId\0pluginId\0hash` the user denied; don't re-prompt them. */
+  private readonly dismissed = new Set<string>();
+  private pendingSnapshot: PendingPluginApproval[] = [];
 
   constructor(
     private readonly dependencies: {
       localeSource: import("@getpaseo/plugin/client/host").PluginLocaleSource;
       version: string | null;
       createRuntime: typeof createPluginClientRuntime;
+      trust: PluginTrustGate;
     },
   ) {}
 
@@ -37,8 +61,16 @@ export class PluginRegistry {
 
   getSnapshot = (): InstalledPlugin[] => this.snapshot;
 
+  getPendingApprovals = (): PendingPluginApproval[] => this.pendingSnapshot;
+
   getEvaluationError(serverId: string, pluginId: string): string | undefined {
     return this.evaluationErrors.get(`${serverId}/${pluginId}`);
+  }
+
+  /** Hides a pending prompt the user denied until the plugin's bundle changes. */
+  dismissPending(serverId: string, pluginId: string, hash: string): void {
+    this.dismissed.add(`${pendingKey(serverId, pluginId)}\u0000${hash}`);
+    if (this.pendingByKey.delete(pendingKey(serverId, pluginId))) this.publish();
   }
 
   installCatalog(
@@ -48,10 +80,13 @@ export class PluginRegistry {
       replacePluginId?: string;
       client: DaemonClient;
       audio: Pick<AudioEngine, "play">;
+      /** sha256 of each entry's `clientBundle`, keyed by plugin id. */
+      hashes?: Record<string, string>;
     },
   ): boolean {
     const previous = this.byHost.get(serverId) ?? [];
     const previousErrors = this.hostEvaluationErrors(serverId);
+    const previousPending = this.pendingFingerprint();
     // Installations call the client they were created with, so a new client replaces them all.
     const sameClient = this.clientByHost.get(serverId) === options.client;
     this.clientByHost.set(serverId, options.client);
@@ -86,8 +121,18 @@ export class PluginRegistry {
         );
         if (existing) {
           this.evaluationErrors.delete(key);
+          this.clearPending(serverId, entry.id);
           return [existing];
         }
+        // The bundle runs through `eval`, so a hostile daemon that ships one runs
+        // arbitrary code. Never evaluate a bundle the user has not approved for
+        // this exact host and hash; record it for the approval prompt instead.
+        const hash = options.hashes?.[entry.id] ?? "";
+        if (!this.dependencies.trust.isApproved(serverId, entry.id, hash)) {
+          this.recordPending(serverId, entry.id, hash);
+          return [];
+        }
+        this.clearPending(serverId, entry.id);
         const client = options.client;
         installation = {
           lifetime: new AbortController(),
@@ -152,13 +197,20 @@ export class PluginRegistry {
         this.evaluationErrors.delete(key);
       }
     }
+    for (const [key, pending] of this.pendingByKey) {
+      if (pending.serverId === serverId && !configuredIds.has(pending.pluginId)) {
+        this.pendingByKey.delete(key);
+      }
+    }
     this.byHost.set(serverId, installed);
     // An unchanged catalog keeps the snapshot, so timeline projections cached against the
-    // installed transformers stay valid across a reconnect.
+    // installed transformers stay valid across a reconnect. A change in pending approvals
+    // still publishes, so the approval prompt follows the catalog.
     const unchanged =
       installed.length === previous.length &&
       installed.every((plugin, index) => plugin === previous[index]) &&
-      this.hostEvaluationErrors(serverId) === previousErrors;
+      this.hostEvaluationErrors(serverId) === previousErrors &&
+      this.pendingFingerprint() === previousPending;
     if (!unchanged) this.publish();
     const installedTimelineBundles = installed
       .filter((plugin) => plugin.timelineTransformers.length > 0)
@@ -176,6 +228,9 @@ export class PluginRegistry {
     for (const key of this.evaluationErrors.keys()) {
       if (key.startsWith(`${serverId}/`)) this.evaluationErrors.delete(key);
     }
+    for (const [key, pending] of this.pendingByKey) {
+      if (pending.serverId === serverId) this.pendingByKey.delete(key);
+    }
     this.byHost.delete(serverId);
     this.clientByHost.delete(serverId);
     this.publish();
@@ -186,6 +241,27 @@ export class PluginRegistry {
     return JSON.stringify(
       [...this.evaluationErrors].filter(([key]) => key.startsWith(prefix)).sort(),
     );
+  }
+
+  private recordPending(serverId: string, pluginId: string, hash: string): void {
+    if (this.dismissed.has(`${pendingKey(serverId, pluginId)}\u0000${hash}`)) return;
+    this.pendingByKey.set(pendingKey(serverId, pluginId), {
+      serverId,
+      pluginId,
+      hash,
+      changed: this.dependencies.trust.hasApprovalForPlugin(serverId, pluginId),
+    });
+  }
+
+  private clearPending(serverId: string, pluginId: string): void {
+    this.pendingByKey.delete(pendingKey(serverId, pluginId));
+  }
+
+  private pendingFingerprint(): string {
+    return [...this.pendingByKey.entries()]
+      .map(([key, pending]) => `${key}\u0000${pending.hash}\u0000${pending.changed}`)
+      .sort()
+      .join("\n");
   }
 
   private dispose(plugin: InstalledPlugin): void {
@@ -212,6 +288,11 @@ export class PluginRegistry {
       .sort((left, right) =>
         `${left.serverId}/${left.id}`.localeCompare(`${right.serverId}/${right.id}`),
       );
+    this.pendingSnapshot = [...this.pendingByKey.values()].sort((left, right) =>
+      pendingKey(left.serverId, left.pluginId).localeCompare(
+        pendingKey(right.serverId, right.pluginId),
+      ),
+    );
     for (const listener of this.listeners) listener();
   }
 }
@@ -228,6 +309,7 @@ export const pluginRegistry = new PluginRegistry({
   },
   version: resolveAppVersion(),
   createRuntime: createPluginClientRuntime,
+  trust: pluginTrustStore,
 });
 
 export function useInstalledPlugins(): InstalledPlugin[] {
@@ -249,4 +331,12 @@ export function useInstalledPlugin(serverId: string, pluginId: string): Installe
 export function usePluginInstallations(pluginId: string): InstalledPlugin[] {
   const installed = useInstalledPlugins();
   return useMemo(() => installed.filter((plugin) => plugin.id === pluginId), [installed, pluginId]);
+}
+
+export function usePendingPluginApprovals(): PendingPluginApproval[] {
+  return useSyncExternalStore(
+    pluginRegistry.subscribe,
+    pluginRegistry.getPendingApprovals,
+    pluginRegistry.getPendingApprovals,
+  );
 }

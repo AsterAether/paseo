@@ -127,7 +127,7 @@ import {
   parseHostWorkspaceRouteFromPathname,
   parseServerIdFromPathname,
 } from "@/utils/host-routes";
-import { PluginCatalogSync } from "@/plugins";
+import { PluginCatalogSync, PluginTrustPrompt } from "@/plugins";
 import { NotificationOpenRouter } from "@/notification-open/react";
 import { ensureOsNotificationPermission } from "@/utils/os-notifications";
 
@@ -583,6 +583,7 @@ function ProvidersWrapper({ children }: { children: ReactNode }) {
         <DesktopWindowControlsSync />
         <OfferLinkListener />
         <HostSessionManager />
+        <PluginTrustPrompt />
         <FaviconStatusSync />
         {children}
       </VoiceProvider>
