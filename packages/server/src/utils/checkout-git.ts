@@ -986,6 +986,11 @@ function isNotGitRepositoryError(error: unknown): boolean {
   return error instanceof Error && /not a git repository/i.test(error.message);
 }
 
+/** Git answering from a bare repository's context, as at a worktree holder. */
+function isOutsideWorkTreeError(error: unknown): boolean {
+  return error instanceof Error && /must be run in a work tree/i.test(error.message);
+}
+
 function getRunGitCommand(context?: CheckoutContext): RunGitCommand {
   return context?.runGitCommand ?? runGitCommand;
 }
@@ -1099,12 +1104,59 @@ async function getWorktreeRoot(cwd: string, context?: CheckoutContext): Promise<
     });
     return parseGitRevParsePath(stdout);
   } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
+    if (!isNotGitRepositoryError(error) && !isOutsideWorkTreeError(error)) {
       context?.logger?.warn(
         { err: error, cwd },
         "Git worktree discovery failed; treating directory as non-Git",
       );
     }
+    return null;
+  }
+}
+
+/**
+ * The checkout a worktree holder stands for: a holder is a directory whose
+ * `.git` file points at a bare repository, with the repository's worktrees
+ * beside it (`.bare/`, `main/`, `feat-x/`). Git refuses work-tree commands at
+ * the holder itself, so status and project classification read its main
+ * worktree instead, found as `getMainRepoRoot` finds it for a bare repository.
+ * Returns null for anything else, including a linked worktree, whose `.git`
+ * file points at `<common dir>/worktrees/<name>`, which holds a `commondir`.
+ */
+export async function resolveWorktreeHolderCheckout(
+  cwd: string,
+  context?: CheckoutContext,
+): Promise<string | null> {
+  let pointer: string;
+  try {
+    pointer = await readFile(resolve(cwd, ".git"), "utf8");
+  } catch {
+    return null;
+  }
+  const match = /^gitdir:\s*(.+?)\s*$/m.exec(pointer);
+  if (!match) {
+    return null;
+  }
+  const gitDir = resolve(cwd, match[1]!);
+  try {
+    await access(resolve(gitDir, "commondir"));
+    return null;
+  } catch {
+    // No commondir: the pointer names a repository, not a linked worktree's admin dir.
+  }
+  try {
+    const { stdout } = await getRunGitCommand(context)(["rev-parse", "--is-bare-repository"], {
+      cwd,
+      envOverlay: READ_ONLY_GIT_ENV,
+      logger: context?.logger,
+    });
+    if (stdout.trim() !== "true") {
+      return null;
+    }
+    const bare = await realpath(gitDir);
+    const checkout = await getMainRepoRootFromCommonDir(cwd, bare, context);
+    return checkout === bare ? null : checkout;
+  } catch {
     return null;
   }
 }
@@ -2172,7 +2224,8 @@ export async function getCheckoutSnapshotFacts(
 
   const inspected = await inspectCheckoutContext(cwd, context);
   if (!inspected) {
-    return { isGit: false };
+    const holderCheckout = await resolveWorktreeHolderCheckout(cwd, context);
+    return holderCheckout ? getCheckoutSnapshotFacts(holderCheckout, context) : { isGit: false };
   }
 
   const paseoWorktreeMetadata = inspected.paseoWorktree.isPaseoOwnedWorktree
@@ -2403,6 +2456,14 @@ export async function getCheckoutStatus(
   const facts = await getCheckoutSnapshotFacts(cwd, context);
   if (!facts.isGit) {
     return { isGit: false };
+  }
+  // A worktree holder's status is its main worktree's, which sits below it; an
+  // ordinary checkout's root is the cwd or above it.
+  if (isDescendantPath(facts.worktreeRoot, cwd)) {
+    const holderCheckout = await resolveWorktreeHolderCheckout(cwd, context);
+    if (holderCheckout) {
+      return getCheckoutStatus(holderCheckout, { ...context, facts });
+    }
   }
 
   const worktreeRoot = facts.worktreeRoot;
