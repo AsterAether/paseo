@@ -22,12 +22,15 @@ export type PluginWorkspaceTabTarget =
       kind: "plugin";
       pluginId: string;
       panelId: string;
+      /** The host whose installation renders the panel; the workspace's host when absent. */
+      pluginServerId?: string;
       context: "workspace";
     }
   | {
       kind: "plugin";
       pluginId: string;
       panelId: string;
+      pluginServerId?: string;
       context: "agent";
       agentId: string;
     };

@@ -49,7 +49,8 @@ function PluginPanelBody({ theme }: { theme: PluginTheme }) {
     [tabState, setCurrentTabState],
   );
   invariant(target.kind === "plugin", "PluginPanel requires plugin target");
-  const plugin = useInstalledPlugin(serverId, target.pluginId);
+  // A plugin may open its panel in another host's workspace: it renders from its own installation.
+  const plugin = useInstalledPlugin(target.pluginServerId ?? serverId, target.pluginId);
   const contribution = resolvePluginWorkspacePanel(plugin, target);
   const workspaceExists = useWorkspaceExists(serverId, workspaceId);
   const agentExists = useSessionStore((state) => {
@@ -152,7 +153,7 @@ function usePluginPanelDescriptor(
   target: Extract<import("@/workspace-tabs/model").WorkspaceTabTarget, { kind: "plugin" }>,
   context: { serverId: string },
 ): PanelDescriptor {
-  const plugin = useInstalledPlugin(context.serverId, target.pluginId);
+  const plugin = useInstalledPlugin(target.pluginServerId ?? context.serverId, target.pluginId);
   const panel = plugin?.workspacePanels.find(
     (contribution) => contribution.id === target.panelId && contribution.context === target.context,
   );

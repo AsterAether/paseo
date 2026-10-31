@@ -47,6 +47,11 @@ export interface PluginButtonRegistration<Text extends PluginText = string> {
 export interface PluginHeaderButtonContribution<Text extends PluginText = string> {
   id: string;
   workspaceId: string;
+  /**
+   * The configured host that owns the workspace, from `hosts`; this plugin's host when omitted.
+   * Older hosts ignore it and look for the workspace on this plugin's host.
+   */
+  serverId?: string;
   button: PluginButton<Text>;
 }
 export interface PluginComposerPillContribution<
