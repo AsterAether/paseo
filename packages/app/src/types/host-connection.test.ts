@@ -5,6 +5,7 @@ import {
   normalizeStoredHostProfile,
   orderHostsLocalFirst,
   pinRelayProtectedSecurityInProfiles,
+  pruneRoutedConnectionsInProfiles,
   relayConnectionFromOffer,
   resolveActiveHostServerId,
   upsertHostConnectionInProfiles,
@@ -313,6 +314,69 @@ describe("upsertHostConnectionInProfiles", () => {
     expect("password" in profile.connections[0]!).toBe(false);
     expect(profile.password).toBe("new-secret");
     expect(profile.preferredConnectionId).toBe(replacement.id);
+  });
+});
+
+describe("pruneRoutedConnectionsInProfiles", () => {
+  const viaA: HostConnection = { id: "via:srv_a", type: "routed", originServerId: "srv_a" };
+  const viaB: HostConnection = { id: "via:srv_b", type: "routed", originServerId: "srv_b" };
+  const direct: HostConnection = { id: "direct:c:6767", type: "directTcp", endpoint: "c:6767" };
+  const now = "2026-02-01T00:00:00.000Z";
+
+  it("removes a host its origin no longer lists, and only that origin's route", () => {
+    const gone: HostProfile = {
+      ...makeHost("srv_gone"),
+      connections: [viaA],
+      preferredConnectionId: viaA.id,
+    };
+    const kept: HostProfile = {
+      ...makeHost("srv_kept"),
+      connections: [viaA],
+      preferredConnectionId: viaA.id,
+    };
+    const elsewhere: HostProfile = {
+      ...makeHost("srv_elsewhere"),
+      connections: [viaA, viaB],
+      preferredConnectionId: viaA.id,
+    };
+    const reached: HostProfile = {
+      ...makeHost("srv_reached"),
+      connections: [direct, viaA],
+      preferredConnectionId: direct.id,
+    };
+    const next = pruneRoutedConnectionsInProfiles({
+      profiles: [makeHost("srv_a"), gone, kept, elsewhere, reached],
+      originServerId: "srv_a",
+      listed: new Set(["srv_kept"]),
+      now,
+    });
+
+    expect(next.map((profile) => profile.serverId)).toEqual([
+      "srv_a",
+      "srv_kept",
+      "srv_elsewhere",
+      "srv_reached",
+    ]);
+    expect(next[1]).toBe(kept);
+    expect(next[2]).toMatchObject({
+      connections: [viaB],
+      preferredConnectionId: viaB.id,
+      updatedAt: now,
+    });
+    expect(next[3]).toMatchObject({ connections: [direct], preferredConnectionId: direct.id });
+  });
+
+  it("returns the same profiles when every routed host is still listed", () => {
+    const profiles = [
+      { ...makeHost("srv_kept"), connections: [viaA], preferredConnectionId: viaA.id },
+    ];
+    expect(
+      pruneRoutedConnectionsInProfiles({
+        profiles,
+        originServerId: "srv_a",
+        listed: new Set(["srv_kept"]),
+      }),
+    ).toBe(profiles);
   });
 });
 
