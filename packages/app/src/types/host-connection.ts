@@ -394,6 +394,40 @@ export function upsertHostConnectionInProfiles(input: {
   return next;
 }
 
+/**
+ * Drops the routed connections through `originServerId` to hosts its directory no longer lists,
+ * and the profiles that leaves without a connection: a host the origin removed goes from the app
+ * too. A host reached otherwise keeps its profile. Returns `profiles` when nothing changes.
+ */
+export function pruneRoutedConnectionsInProfiles(input: {
+  profiles: HostProfile[];
+  originServerId: string;
+  listed: ReadonlySet<string>;
+  now?: string;
+}): HostProfile[] {
+  const { profiles, originServerId, listed } = input;
+  const routedHere = (connection: HostConnection) =>
+    connection.type === "routed" && connection.originServerId === originServerId;
+  if (
+    !profiles.some(
+      (profile) => !listed.has(profile.serverId) && profile.connections.some(routedHere),
+    )
+  )
+    return profiles;
+  const now = input.now ?? new Date().toISOString();
+  return profiles.flatMap((profile) => {
+    if (listed.has(profile.serverId) || !profile.connections.some(routedHere)) return [profile];
+    const connections = profile.connections.filter((connection) => !routedHere(connection));
+    if (connections.length === 0) return [];
+    const preferredConnectionId = connections.some(
+      (connection) => connection.id === profile.preferredConnectionId,
+    )
+      ? profile.preferredConnectionId
+      : (connections[0]?.id ?? null);
+    return [{ ...profile, connections, preferredConnectionId, updatedAt: now }];
+  });
+}
+
 export function connectionFromListen(listen: string): HostConnection | null {
   const normalizedListen = listen.trim();
   if (!normalizedListen) {
