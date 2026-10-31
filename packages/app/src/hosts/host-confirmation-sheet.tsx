@@ -14,36 +14,67 @@ export function HostConfirmationSheet() {
 
   const cancel = useCallback(() => answer(false), [answer]);
   const connect = useCallback(() => answer(true), [answer]);
-  const header = useMemo<SheetHeader>(() => ({ title: t("pairing.hostConfirmation.title") }), [t]);
+  const isAddedConnection = pending?.kind === "addedConnection";
+  const header = useMemo<SheetHeader>(
+    () => ({
+      title: isAddedConnection
+        ? t("pairing.hostConfirmation.titleAddedConnection")
+        : t("pairing.hostConfirmation.title"),
+    }),
+    [isAddedConnection, t],
+  );
 
   if (!pending) return null;
 
   return (
     <AdaptiveModalSheet header={header} visible onClose={cancel} testID="host-confirmation">
-      <Text style={styles.confirmText}>
-        {pending.kind === "changedConnection"
-          ? t("pairing.hostConfirmation.descriptionChanged")
-          : t("pairing.hostConfirmation.description")}
-      </Text>
-      <View style={settingsStyles.card}>
-        <DetailRow
-          label={t("pairing.hostConfirmation.hostLabel")}
-          value={pending.serverId}
-          testID="host-confirmation-server-id"
-        />
-        <DetailRow
-          label={t("pairing.hostConfirmation.fingerprintLabel")}
-          value={pending.keyFingerprint}
-          testID="host-confirmation-fingerprint"
-          showBorder
-        />
-        <DetailRow
-          label={t("pairing.hostConfirmation.relayLabel")}
-          value={pending.relayEndpoint}
-          testID="host-confirmation-relay"
-          showBorder
-        />
-      </View>
+      {pending.kind === "addedConnection" ? (
+        <>
+          <Text style={styles.confirmText}>
+            {t("pairing.hostConfirmation.descriptionAddedConnection", { host: pending.hostLabel })}
+          </Text>
+          <View style={settingsStyles.card}>
+            <DetailRow
+              label={t("pairing.hostConfirmation.hostLabel")}
+              value={`${pending.hostLabel} (${pending.serverId})`}
+              testID="host-confirmation-server-id"
+            />
+            <DetailRow
+              label={t("pairing.hostConfirmation.endpointLabel")}
+              value={pending.endpoint}
+              testID="host-confirmation-endpoint"
+              showBorder
+            />
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={styles.confirmText}>
+            {pending.kind === "changedConnection"
+              ? t("pairing.hostConfirmation.descriptionChanged")
+              : t("pairing.hostConfirmation.description")}
+          </Text>
+          <View style={settingsStyles.card}>
+            <DetailRow
+              label={t("pairing.hostConfirmation.hostLabel")}
+              value={pending.serverId}
+              testID="host-confirmation-server-id"
+            />
+            <DetailRow
+              label={t("pairing.hostConfirmation.fingerprintLabel")}
+              value={pending.keyFingerprint}
+              testID="host-confirmation-fingerprint"
+              showBorder
+            />
+            <DetailRow
+              label={t("pairing.hostConfirmation.relayLabel")}
+              value={pending.relayEndpoint}
+              testID="host-confirmation-relay"
+              showBorder
+            />
+          </View>
+        </>
+      )}
       <View style={styles.confirmActions}>
         <Button
           variant="secondary"
@@ -61,7 +92,9 @@ export function HostConfirmationSheet() {
           onPress={connect}
           testID="host-confirmation-connect"
         >
-          {t("pairing.hostConfirmation.connect")}
+          {isAddedConnection
+            ? t("pairing.hostConfirmation.addConnection")
+            : t("pairing.hostConfirmation.connect")}
         </Button>
       </View>
     </AdaptiveModalSheet>

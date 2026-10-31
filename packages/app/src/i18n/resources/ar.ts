@@ -1727,6 +1727,11 @@ export const ar: TranslationResources = {
       fingerprintLabel: "بصمة المفتاح",
       relayLabel: "المُرحّل",
       connect: "اتصال",
+      titleAddedConnection: "هل تريد إضافة هذا العنوان إلى مضيف محفوظ؟",
+      descriptionAddedConnection:
+        "يُبلغ هذا العنوان أنه {{host}}، وهو مضيف حفظته من قبل. لا شيء يثبت ذلك. إذا أضفته، سيعامله التطبيق على أنه {{host}}، وستعمل الإضافات التي وافقت عليها لـ {{host}} من خلاله. لا تضفه إلا إذا كان هذا العنوان يصل إلى الجهاز نفسه.",
+      endpointLabel: "العنوان",
+      addConnection: "إضافة اتصال",
     },
     connectionMethods: {
       title: "إضافة اتصال",

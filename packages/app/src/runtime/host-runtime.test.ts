@@ -22,6 +22,8 @@ import { normalizeAgentSnapshot } from "@/utils/agent-snapshots";
 import { isAgentArchiving, setAgentArchiving } from "@/hooks/use-archive-agent";
 import { queryClient } from "@/data/query-client";
 import {
+  HostConnectionDeclinedError,
+  HostIdentityChangedError,
   HostRuntimeController,
   HostRuntimeStore,
   readInitialDaemonConnectionHint,
@@ -1812,6 +1814,7 @@ describe("HostRuntimeStore", () => {
   it.each([false, true])(
     "keeps B and C distinct with routed and direct candidates (B direct first: %s)",
     async (directFirst) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
       const directory = new Deferred<HostDirectory>();
       const origin = new FakeDaemonClient();
       origin.setConnectionState({ status: "connected" });
@@ -1865,43 +1868,53 @@ describe("HostRuntimeStore", () => {
             error: null,
           })),
         });
-        await vi.waitFor(() =>
-          expect(store.getHosts()).toContainEqual(
-            expect.objectContaining({
-              serverId: "srv_b",
-              connections: expect.arrayContaining([
-                { id: "via:srv_a", type: "routed", originServerId: "srv_a" },
-              ]),
-            }),
-          ),
-        );
-        await waitForHostOnline(store, "srv_b");
-        if (!directFirst) await addDirectB();
+        const routedB = { id: "via:srv_a", type: "routed", originServerId: "srv_a" };
+        const directB = {
+          id: "direct:b:6767",
+          type: "directTcp",
+          endpoint: "b:6767",
+          useTls: false,
+        };
+        if (directFirst) {
+          // A listing a target never joins a saved host: B stays reachable only directly.
+          await vi.waitFor(() =>
+            expect(warn).toHaveBeenCalledWith(
+              "[HostRuntime] ignoring routed host that claims a saved host",
+              { origin: "srv_a", target: "srv_b" },
+            ),
+          );
+        } else {
+          await vi.waitFor(() =>
+            expect(store.getHosts()).toContainEqual(
+              expect.objectContaining({ serverId: "srv_b", connections: [routedB] }),
+            ),
+          );
+          await waitForHostOnline(store, "srv_b");
+          await addDirectB();
+        }
         const targets = store.getHosts().filter((host) => host.serverId === "srv_b");
         expect(targets).toHaveLength(1);
-        expect(targets[0]?.connections).toEqual(
-          expect.arrayContaining([
-            { id: "via:srv_a", type: "routed", originServerId: "srv_a" },
-            { id: "direct:b:6767", type: "directTcp", endpoint: "b:6767", useTls: false },
-          ]),
-        );
-        expect(targets[0]?.connections).toHaveLength(2);
+        expect(targets[0]?.connections).toEqual(directFirst ? [directB] : [routedB, directB]);
         expect(targets[0]?.label).toBe(directFirst ? "My B" : "Fleet B");
-        expect(store.getSnapshot("srv_b")?.connectionStatus).toBe("online");
+        await waitForHostOnline(store, "srv_b");
         expect(store.getHosts()).toHaveLength(3);
+        expect(warn).toHaveBeenCalledWith(
+          "[HostRuntime] ignoring routed host that claims a saved host",
+          { origin: "srv_a", target: "srv_c" },
+        );
         const targetC = store.getHosts().find((host) => host.serverId === "srv_c");
         expect(targetC).toMatchObject({
           serverId: "srv_c",
           label: "My C",
           connections: [
             { id: "direct:c:6767", type: "directTcp", endpoint: "c:6767", useTls: false },
-            { id: "via:srv_a", type: "routed", originServerId: "srv_a" },
           ],
         });
         await waitForHostOnline(store, "srv_c");
         expect(store.getSnapshot("srv_c")?.connectionStatus).toBe("online");
       } finally {
         store.syncHosts([]);
+        warn.mockRestore();
       }
     },
   );
@@ -4285,6 +4298,91 @@ describe("HostRuntimeStore", () => {
       "srv_localhost:6767",
       "srv_10.0.0.5:6767",
     ]);
+    store.syncHosts([]);
+  });
+
+  it("asks before an added address joins the saved host whose server id it reports", async () => {
+    const store = createPairingStore({
+      serverIdForHost: (host) =>
+        host.connections[0]?.type === "directTcp" &&
+        host.connections[0].endpoint === "10.0.0.9:6767"
+          ? "srv_saved"
+          : host.serverId,
+    });
+    await store.boot();
+    await store.upsertDirectConnection({
+      serverId: "srv_saved",
+      endpoint: "a:6767",
+      label: "Saved",
+    });
+
+    const declined = answerHostConfirmations(store, false);
+    await expect(
+      store.probeAndUpsertDirectConnection({ endpoint: "10.0.0.9:6767" }),
+    ).rejects.toBeInstanceOf(HostConnectionDeclinedError);
+    expect(declined).toEqual([
+      expect.objectContaining({
+        kind: "addedConnection",
+        serverId: "srv_saved",
+        hostLabel: "Saved",
+        endpoint: "10.0.0.9:6767",
+      }),
+    ]);
+    const saved = () => store.getHosts().find((host) => host.serverId === "srv_saved");
+    expect(saved()?.connections.map((connection) => connection.id)).toEqual(["direct:a:6767"]);
+
+    const approved = createPairingStore({
+      serverIdForHost: (host) =>
+        host.connections[0]?.type === "directTcp" &&
+        host.connections[0].endpoint === "10.0.0.9:6767"
+          ? "srv_saved"
+          : host.serverId,
+    });
+    await approved.boot();
+    await approved.upsertDirectConnection({
+      serverId: "srv_saved",
+      endpoint: "a:6767",
+      label: "Saved",
+    });
+    answerHostConfirmations(approved, true);
+    await approved.probeAndUpsertDirectConnection({ endpoint: "10.0.0.9:6767" });
+    expect(
+      approved
+        .getHosts()
+        .find((host) => host.serverId === "srv_saved")
+        ?.connections.map((connection) => connection.id),
+    ).toEqual(["direct:a:6767", "direct:10.0.0.9:6767"]);
+    store.syncHosts([]);
+    approved.syncHosts([]);
+  });
+
+  it("refuses an address saved as one host that now reports another server id", async () => {
+    const store = createPairingStore({
+      serverIdForHost: (host) =>
+        host.serverId === "" && host.connections[0]?.id === "direct:b:6767"
+          ? "srv_other"
+          : host.serverId,
+    });
+    await store.boot();
+    await store.upsertDirectConnection({
+      serverId: "srv_saved",
+      endpoint: "b:6767",
+      label: "Saved",
+    });
+    const requests = answerHostConfirmations(store, true);
+
+    await expect(
+      store.probeAndUpsertDirectConnection({ endpoint: "b:6767" }),
+    ).rejects.toBeInstanceOf(HostIdentityChangedError);
+
+    expect(requests).toEqual([]);
+    expect(store.getHosts().map((host) => host.serverId)).not.toContain("srv_other");
+    expect(
+      store
+        .getHosts()
+        .find((host) => host.serverId === "srv_saved")
+        ?.connections.map((connection) => connection.id),
+    ).toEqual(["direct:b:6767"]);
     store.syncHosts([]);
   });
 

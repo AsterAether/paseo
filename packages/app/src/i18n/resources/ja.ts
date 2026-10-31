@@ -1744,6 +1744,11 @@ export const ja: TranslationResources = {
       fingerprintLabel: "鍵のフィンガープリント",
       relayLabel: "リレー",
       connect: "接続",
+      titleAddedConnection: "このアドレスを保存済みのホストに追加しますか？",
+      descriptionAddedConnection:
+        "このアドレスは、保存済みのホスト {{host}} であると報告しています。それを証明するものはありません。追加すると、アプリはこれを {{host}} として扱い、{{host}} に承認したプラグインがここから実行されます。このアドレスが同じマシンにつながる場合のみ追加してください。",
+      endpointLabel: "アドレス",
+      addConnection: "接続を追加",
     },
     connectionMethods: {
       title: "接続を追加",

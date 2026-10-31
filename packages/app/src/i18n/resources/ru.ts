@@ -1756,6 +1756,11 @@ export const ru: TranslationResources = {
       fingerprintLabel: "Отпечаток ключа",
       relayLabel: "Реле",
       connect: "Подключить",
+      titleAddedConnection: "Добавить этот адрес к сохранённому хосту?",
+      descriptionAddedConnection:
+        "Этот адрес сообщает, что он — {{host}}, хост, который вы уже сохранили. Ничто этого не подтверждает. Если вы его добавите, приложение будет считать его {{host}}, и плагины, одобренные для {{host}}, будут запускаться через него. Добавляйте, только если этот адрес ведёт на ту же машину.",
+      endpointLabel: "Адрес",
+      addConnection: "Добавить подключение",
     },
     connectionMethods: {
       title: "Добавить подключение",
