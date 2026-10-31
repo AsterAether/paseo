@@ -12,7 +12,12 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Eye, EyeOff, Terminal } from "lucide-react-native";
 import { parseSshTransportUri } from "@getpaseo/protocol/ssh-transport";
 import type { HostProfile } from "@/types/host-connection";
-import { useHostMutations, useHosts } from "@/runtime/host-runtime";
+import {
+  HostConnectionDeclinedError,
+  HostIdentityChangedError,
+  useHostMutations,
+  useHosts,
+} from "@/runtime/host-runtime";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import {
@@ -163,6 +168,11 @@ export function AddRemoteSshHostModal({
         password: passwordRef.current === "" ? undefined : passwordRef.current,
       });
     } catch (error) {
+      if (error instanceof HostConnectionDeclinedError) return;
+      if (error instanceof HostIdentityChangedError) {
+        setErrorMessage(error.message);
+        return;
+      }
       const message =
         error instanceof DaemonConnectionTestError
           ? t("pairing.remoteSsh.errors.failedToConnect", { detail: error.message })
