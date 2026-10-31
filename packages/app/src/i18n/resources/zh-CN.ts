@@ -1809,6 +1809,11 @@ export const zhCN: TranslationResources = {
       fingerprintLabel: "密钥指纹",
       relayLabel: "中继",
       connect: "连接",
+      titleAddedConnection: "将此地址添加到已保存的主机？",
+      descriptionAddedConnection:
+        "此地址声称自己是你已保存的主机 {{host}}，但没有任何证明。添加后，应用会把它当作 {{host}}，你为 {{host}} 批准的插件也会从它运行。仅当此地址连接的是同一台机器时才添加。",
+      endpointLabel: "地址",
+      addConnection: "添加连接",
     },
     connectionMethods: {
       title: "添加连接",

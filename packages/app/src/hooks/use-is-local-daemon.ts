@@ -1,10 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { getDesktopDaemonStatus, shouldUseDesktopDaemon } from "@/desktop/daemon/desktop-daemon";
+import { useHostRuntimeActiveConnectionId } from "@/runtime/host-runtime";
+import { connectionFromListen } from "@/types/host-connection";
 
 const DESKTOP_DAEMON_SERVER_ID_QUERY_KEY = ["desktop-daemon-server-id"] as const;
 
 interface DesktopDaemonServerIdResult {
   serverId: string | null;
+  /** The connection the app uses for the desktop's own daemon, from its listen address. */
+  connectionId: string | null;
 }
 
 async function loadDesktopDaemonServerId(): Promise<DesktopDaemonServerIdResult> {
@@ -12,6 +16,7 @@ async function loadDesktopDaemonServerId(): Promise<DesktopDaemonServerIdResult>
   const serverId = status.serverId.trim();
   return {
     serverId: serverId.length > 0 ? serverId : null,
+    connectionId: status.listen ? (connectionFromListen(status.listen)?.id ?? null) : null,
   };
 }
 
@@ -24,7 +29,8 @@ function useLocalDaemonServerIdQuery() {
     enabled: isDesktopApp,
     staleTime: Infinity,
     gcTime: Infinity,
-    refetchInterval: (activeQuery) => (activeQuery.state.data?.serverId ? false : 1000),
+    refetchInterval: (activeQuery) =>
+      activeQuery.state.data?.serverId && activeQuery.state.data.connectionId ? false : 1000,
     refetchOnMount: false,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -64,13 +70,32 @@ export function useLocalDaemonServerIdState(): LocalDaemonServerIdState {
   return { status: "loading" };
 }
 
+/**
+ * A host is the local daemon only while the app talks to it over the desktop
+ * daemon's own listen connection. The server id alone is what a daemon reports
+ * about itself, so a remote daemon could copy it; the connection is the app's
+ * own knowledge.
+ */
+export function isLocalDaemonConnection(input: {
+  serverId: string;
+  activeConnectionId: string | null;
+  local: { serverId: string | null; connectionId: string | null };
+}): boolean {
+  const serverId = input.serverId.trim();
+  if (!serverId || !input.local.serverId || !input.local.connectionId) return false;
+  return serverId === input.local.serverId && input.activeConnectionId === input.local.connectionId;
+}
+
 export function useIsLocalDaemon(serverId: string): boolean {
-  const normalizedServerId = serverId.trim();
-  const localServerId = useLocalDaemonServerId();
-
-  if (localServerId === null || normalizedServerId.length === 0) {
-    return false;
-  }
-
-  return localServerId === normalizedServerId;
+  const query = useLocalDaemonServerIdQuery();
+  const activeConnectionId = useHostRuntimeActiveConnectionId(serverId.trim());
+  if (!shouldUseDesktopDaemon()) return false;
+  return isLocalDaemonConnection({
+    serverId,
+    activeConnectionId,
+    local: {
+      serverId: query.data?.serverId ?? null,
+      connectionId: query.data?.connectionId ?? null,
+    },
+  });
 }

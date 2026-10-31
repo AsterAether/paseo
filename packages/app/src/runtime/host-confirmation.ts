@@ -2,22 +2,34 @@ import type { ConnectionOffer } from "@getpaseo/protocol/connection-offer";
 import {
   hostHasConnection,
   relayConnectionFromOffer,
+  type HostConnection,
   type HostProfile,
 } from "@/types/host-connection";
 
 /**
  * The question shown before a pairing link adds a host that is not saved, or
- * changes the key, relay, or TLS setting of a saved one.
+ * changes the key, relay, or TLS setting of a saved one; or before an address
+ * the user added joins a saved host because it reports that host's server id.
  */
-export interface HostConfirmationRequest {
-  /** Identifies this question, so an answer shown for it never answers a newer one. */
-  id: number;
-  serverId: string;
-  /** Grouped daemon public key the user can compare with the one their daemon shows. */
-  keyFingerprint: string;
-  relayEndpoint: string;
-  kind: "newHost" | "changedConnection";
-}
+export type HostConfirmationRequest =
+  | {
+      /** Identifies this question, so an answer shown for it never answers a newer one. */
+      id: number;
+      serverId: string;
+      /** Grouped daemon public key the user can compare with the one their daemon shows. */
+      keyFingerprint: string;
+      relayEndpoint: string;
+      kind: "newHost" | "changedConnection";
+    }
+  | {
+      id: number;
+      serverId: string;
+      /** Label of the saved host the address claims to be. */
+      hostLabel: string;
+      /** The address being added, as the user entered it. */
+      endpoint: string;
+      kind: "addedConnection";
+    };
 
 interface PendingConfirmation {
   request: HostConfirmationRequest;
@@ -65,6 +77,29 @@ export class HostConfirmations {
       keyFingerprint: formatDaemonKeyFingerprint(connection.daemonPublicKeyB64),
       relayEndpoint: connection.relayEndpoint,
       kind: savedHost ? "changedConnection" : "newHost",
+    });
+  }
+
+  /**
+   * A direct or SSH address reports its own server id, and nothing proves it.
+   * Resolves true without asking when no saved host has that id, or the saved
+   * host already holds this connection; otherwise asks before the address joins
+   * the saved host, its approvals and its local-only actions.
+   */
+  confirmConnection(input: {
+    serverId: string;
+    connection: HostConnection;
+    endpoint: string;
+    savedHosts: HostProfile[];
+  }): Promise<boolean> {
+    const savedHost = input.savedHosts.find((host) => host.serverId === input.serverId);
+    if (!savedHost || hostHasConnection(savedHost, input.connection)) return Promise.resolve(true);
+    return this.ask({
+      id: this.nextRequestId++,
+      serverId: input.serverId,
+      hostLabel: savedHost.label,
+      endpoint: input.endpoint,
+      kind: "addedConnection",
     });
   }
 

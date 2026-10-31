@@ -1875,6 +1875,11 @@ export const es: TranslationResources = {
       fingerprintLabel: "Huella de la clave",
       relayLabel: "Relay",
       connect: "Conectar",
+      titleAddedConnection: "¿Añadir esta dirección a un host guardado?",
+      descriptionAddedConnection:
+        "Esta dirección indica que es {{host}}, un host que ya guardaste. Nada lo demuestra. Si la añades, la app la trata como {{host}} y los plugins que aprobaste para {{host}} se ejecutan desde ella. Añádela solo si esta dirección llega a la misma máquina.",
+      endpointLabel: "Dirección",
+      addConnection: "Añadir conexión",
     },
     connectionMethods: {
       title: "Agregar conexión",

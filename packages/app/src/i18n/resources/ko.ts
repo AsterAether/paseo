@@ -1839,6 +1839,11 @@ export const ko: TranslationResources = {
       fingerprintLabel: "키 지문",
       relayLabel: "릴레이",
       connect: "연결",
+      titleAddedConnection: "이 주소를 저장된 호스트에 추가할까요?",
+      descriptionAddedConnection:
+        "이 주소는 이미 저장한 호스트 {{host}}라고 보고합니다. 이를 증명하는 것은 없습니다. 추가하면 앱이 이 주소를 {{host}}로 취급하고, {{host}}에 승인한 플러그인이 이 주소에서 실행됩니다. 이 주소가 같은 머신에 연결되는 경우에만 추가하세요.",
+      endpointLabel: "주소",
+      addConnection: "연결 추가",
     },
     connectionMethods: {
       title: "연결 추가",
