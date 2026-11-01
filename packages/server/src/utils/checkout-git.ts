@@ -1196,9 +1196,16 @@ async function getMainRepoRootFromCommonDir(
         worktreesRoot: context?.worktreesRoot,
       }),
   );
+  const pick = (candidates: GitWorktreeEntry[]) =>
+    candidates.find((wt) => basename(wt.path) === "main") ?? candidates[0];
   const childrenOfBareRepo = nonBareNonPaseo.filter((wt) => isDescendantPath(wt.path, normalized));
-  const mainChild = childrenOfBareRepo.find((wt) => basename(wt.path) === "main");
-  return mainChild?.path ?? childrenOfBareRepo[0]?.path ?? nonBareNonPaseo[0]?.path ?? normalized;
+  // A worktree holder keeps its worktrees beside the bare repository (`.bare`), not inside it.
+  const besideBareRepo = nonBareNonPaseo.filter((wt) =>
+    isDescendantPath(wt.path, dirname(normalized)),
+  );
+  return (
+    (pick(childrenOfBareRepo) ?? pick(besideBareRepo) ?? nonBareNonPaseo[0])?.path ?? normalized
+  );
 }
 
 export interface GitWorktreeEntry {

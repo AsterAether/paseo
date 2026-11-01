@@ -391,16 +391,21 @@ describe("checkout git utilities", () => {
       expect(records).toEqual([]);
     });
 
-    it("reads a holder's worktree as itself", async () => {
+    it("reads a holder's worktree as itself, with the holder's main worktree as its main repo", async () => {
       const holderDir = makeHolder();
-      execFileSync("git", ["worktree", "add", "main", "main"], { cwd: holderDir });
       execFileSync("git", ["worktree", "add", "feat", "-b", "feat"], { cwd: holderDir });
+      execFileSync("git", ["worktree", "add", "main", "main"], { cwd: holderDir });
 
-      await expect(getCheckoutStatus(join(holderDir, "feat"))).resolves.toMatchObject({
+      const status = await getCheckoutStatus(join(holderDir, "feat"));
+
+      expect(status).toMatchObject({
         isGit: true,
         repoRoot: join(holderDir, "feat"),
         currentBranch: "feat",
       });
+      expect(realpathSync.native(status.mainRepoRoot ?? "")).toBe(
+        realpathSync.native(join(holderDir, "main")),
+      );
     });
   });
 
