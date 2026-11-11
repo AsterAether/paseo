@@ -73,6 +73,7 @@ import {
   mountServerDataPushRouter,
 } from "@/data/push-router";
 import { mountBrowserAutomationDaemonClientHandler } from "@/desktop/browser/automation/handler";
+import { browserAutomationConsentStore } from "@/runtime/browser-automation-consent";
 import { schedulesQueryBaseKey } from "@/schedules/aggregated-schedules";
 import { dispatchComposerAgentMessage, sendQueuedComposerMessageNow } from "@/composer/actions";
 import { createMessageSubmissionWriter } from "@/composer/submission/writer";
@@ -561,27 +562,52 @@ function probeIntervalForConnection(
   return PROBE_MAX_BACKOFF_MS;
 }
 
+/**
+ * Decides whether the app advertises the `browserHost` capability and mounts
+ * the browser-automation handler for a host. The desktop browser being
+ * available is necessary but not sufficient: the user must also have opted this
+ * host in (default OFF). Keep this pure so the advertise/mount gate is testable
+ * without the whole `createDefaultDeps` closure.
+ */
+export function shouldEnableBrowserAutomation(input: {
+  available: boolean;
+  consented: boolean;
+}): boolean {
+  return input.available && input.consented;
+}
+
 function createDefaultDeps(
   resolveOrigin: (serverId: string) => DaemonClient | null = () => null,
 ): HostRuntimeControllerDeps {
   const browserHostAvailable =
     typeof getDesktopHost()?.browser?.executeAutomationCommand === "function";
-  const browserAutomationCapabilities = browserHostAvailable
-    ? {
-        [CLIENT_CAPS.browserHost]: {
-          supportedCommands: [...BROWSER_AUTOMATION_COMMAND_NAMES],
-          hostKind: "desktop app",
-        },
-      }
-    : undefined;
-  const appCapabilities = {
-    ...browserAutomationCapabilities,
-  };
+  // Load persisted per-host consent once so the synchronous gate below reflects
+  // it. Until hydration completes every host reads as not-allowed, which is the
+  // safe default; a persisted grant takes effect when the host next connects
+  // (createClient/connectToDaemon re-read consent per connection).
+  void browserAutomationConsentStore.hydrate();
+  // Built fresh per host/connection because consent is per host and may change:
+  // the capability is advertised AND the handler mounted only when this host is
+  // opted in. A revoke tears the handler down promptly (see mountClientHandlers);
+  // a grant takes effect on the host's next connect.
+  const browserAutomationCapabilitiesForHost = (serverId: string) =>
+    shouldEnableBrowserAutomation({
+      available: browserHostAvailable,
+      consented: browserAutomationConsentStore.isAllowed(serverId),
+    })
+      ? {
+          [CLIENT_CAPS.browserHost]: {
+            supportedCommands: [...BROWSER_AUTOMATION_COMMAND_NAMES],
+            hostKind: "desktop app",
+          },
+        }
+      : undefined;
 
   return {
     createClient: ({ host, connection, clientId, runtimeGeneration }) => {
       const desktopTransportFactory = createDesktopDaemonTransportFactory();
       const webSocketConfig = { webSocketFactory: createAppWebSocketFactory() };
+      const appCapabilities = { ...browserAutomationCapabilitiesForHost(host.serverId) };
       const base = {
         suppressSendErrors: true,
         clientId,
@@ -688,7 +714,7 @@ function createDefaultDeps(
         ...(host.password ? { password: host.password } : {}),
         localCredential: () => readDesktopManagedLocalCredential(connection),
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-        capabilities: appCapabilities,
+        capabilities: { ...browserAutomationCapabilitiesForHost(host.serverId) },
         trace: createPerformanceTrace({ host: host.serverId, connection: connection.id }),
         createPluginClientBundleStore: createHostPluginClientBundleStore,
       });
@@ -700,14 +726,26 @@ function createDefaultDeps(
         queryClient,
         serverId: host.serverId,
       });
-      if (!browserAutomationCapabilities) {
+      if (!browserAutomationCapabilitiesForHost(host.serverId)) {
         return unmountServerData;
       }
-      const unmountBrowserAutomation = mountBrowserAutomationDaemonClientHandler(client, {
-        serverId: host.serverId,
+      let unmountBrowserAutomation: (() => void) | null = mountBrowserAutomationDaemonClientHandler(
+        client,
+        { serverId: host.serverId },
+      );
+      // A revoke stops the handler promptly: when consent for this host drops,
+      // tear the browser-automation handler down on the live connection. The
+      // capability stays advertised until the next connect, but an unmounted
+      // handler means the daemon's requests go unhandled (no browser access).
+      const unsubscribeConsent = browserAutomationConsentStore.subscribe(() => {
+        if (!browserAutomationConsentStore.isAllowed(host.serverId) && unmountBrowserAutomation) {
+          unmountBrowserAutomation();
+          unmountBrowserAutomation = null;
+        }
       });
       return () => {
-        unmountBrowserAutomation();
+        unsubscribeConsent();
+        unmountBrowserAutomation?.();
         unmountServerData();
       };
     },

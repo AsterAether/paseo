@@ -66,6 +66,7 @@ import type { Theme } from "@/styles/theme";
 import { useProviderIcon } from "@/components/provider-icons";
 import { BrowserToolsOptInCard } from "./browser-tools-card";
 import { PaseoToolsCard } from "./paseo-tools-card";
+import { BrowserAutomationConsentCard } from "./browser-automation-consent-card";
 import { RestartRecoveryCard } from "./restart-recovery-card";
 import { IdleRuntimeCleanupCard } from "./idle-runtime-cleanup-card";
 import { restartDaemonFromSettings, updateDaemonFromSettings } from "./daemon-lifecycle";
@@ -293,6 +294,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
         <SettingsSection title={t("settings.hostSections.agents")}>
           <PaseoToolsCard serverId={serverId} />
           <BrowserToolsOptInCard serverId={serverId} />
+          <BrowserAutomationConsentCard serverId={serverId} />
           <AppendSystemPromptCard serverId={serverId} />
           <RestartRecoveryCard serverId={serverId} />
           <IdleRuntimeCleanupCard serverId={serverId} />
