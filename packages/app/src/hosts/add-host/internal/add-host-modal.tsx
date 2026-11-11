@@ -6,7 +6,12 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { Check, ChevronDown, ChevronRight, Eye, EyeOff, Link2 } from "lucide-react-native";
 import type { HostProfile } from "@/types/host-connection";
-import { useHosts, useHostMutations } from "@/runtime/host-runtime";
+import {
+  HostConnectionDeclinedError,
+  HostIdentityChangedError,
+  useHosts,
+  useHostMutations,
+} from "@/runtime/host-runtime";
 import { parseConnectionUri, serializeConnectionUri } from "@/utils/daemon-endpoints";
 import { buildConnectionFailureCopy } from "@/components/connection-failure-copy";
 import {
@@ -317,6 +322,11 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
       onSaved?.({ profile, serverId, hostname, isNewHost });
       handleClose();
     } catch (error) {
+      if (error instanceof HostConnectionDeclinedError) return;
+      if (error instanceof HostIdentityChangedError) {
+        setErrorMessage(error.message);
+        return;
+      }
       const {
         title,
         detail,

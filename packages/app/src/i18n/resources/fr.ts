@@ -1874,6 +1874,11 @@ export const fr: TranslationResources = {
       fingerprintLabel: "Empreinte de la clé",
       relayLabel: "Relais",
       connect: "Se connecter",
+      titleAddedConnection: "Ajouter cette adresse à un hôte enregistré ?",
+      descriptionAddedConnection:
+        "Cette adresse indique qu’elle est {{host}}, un hôte que vous avez déjà enregistré. Rien ne le prouve. Si vous l’ajoutez, l’app la traite comme {{host}} et les plugins que vous avez approuvés pour {{host}} s’exécutent depuis elle. Ne l’ajoutez que si cette adresse mène à la même machine.",
+      endpointLabel: "Adresse",
+      addConnection: "Ajouter la connexion",
     },
     connectionMethods: {
       title: "Ajouter une connexion",

@@ -1860,6 +1860,11 @@ export const ptBR: TranslationResources = {
       fingerprintLabel: "Impressão da chave",
       relayLabel: "Relay",
       connect: "Conectar",
+      titleAddedConnection: "Adicionar este endereço a um host salvo?",
+      descriptionAddedConnection:
+        "Este endereço informa que é {{host}}, um host que você já salvou. Nada comprova isso. Se você adicioná-lo, o app o trata como {{host}} e os plugins que você aprovou para {{host}} rodam a partir dele. Adicione somente se este endereço chega à mesma máquina.",
+      endpointLabel: "Endereço",
+      addConnection: "Adicionar conexão",
     },
     connectionMethods: {
       title: "Adicionar conexão",

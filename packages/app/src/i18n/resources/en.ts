@@ -1854,6 +1854,11 @@ export const en = {
       fingerprintLabel: "Key fingerprint",
       relayLabel: "Relay",
       connect: "Connect",
+      titleAddedConnection: "Add this address to a saved host?",
+      descriptionAddedConnection:
+        "This address reports that it is {{host}}, a host you already saved. Nothing proves that. If you add it, the app treats it as {{host}}, and plugins you approved for {{host}} run from it. Only add it if this address reaches the same machine.",
+      endpointLabel: "Address",
+      addConnection: "Add connection",
     },
     connectionMethods: {
       title: "Add connection",

@@ -20,6 +20,7 @@ import {
   normalizeStoredHostProfile,
   pinRelayProtectedSecurityInProfiles,
   upsertHostConnectionInProfiles,
+  hostHasConnection,
   registryHasConnection,
   relayConnectionFromOffer,
   StoredHostRegistrySchema,
@@ -193,6 +194,24 @@ function hashForLog(value: string): string {
     hash = (hash * 31 + value.charCodeAt(index)) | 0;
   }
   return `h_${Math.abs(hash).toString(16)}`;
+}
+
+/** The user declined adding an address to the saved host whose server id it reports. */
+export class HostConnectionDeclinedError extends Error {
+  constructor() {
+    super("Connection not added.");
+    this.name = "HostConnectionDeclinedError";
+  }
+}
+
+/** An address saved as one host now reports a different server id. */
+export class HostIdentityChangedError extends Error {
+  constructor(endpoint: string, savedLabel: string, reportedServerId: string) {
+    super(
+      `${endpoint} is saved as ${savedLabel} but now reports server id ${reportedServerId}. Remove ${savedLabel} first if this address really is a different host.`,
+    );
+    this.name = "HostIdentityChangedError";
+  }
 }
 
 /** A daemon identity that negotiated protected relay security. */
@@ -2081,6 +2100,12 @@ export class HostRuntimeStore {
     password?: string;
     label?: string;
     timeoutMs?: number;
+    /**
+     * Set when the user typed the address. The server id it reports is only a
+     * claim, so joining a saved host asks first. Bootstrap probes of addresses
+     * the operator configured leave it unset.
+     */
+    claimedBy?: { endpoint: string };
   }): Promise<{ profile: HostProfile; serverId: string; hostname: string | null }> {
     if (input.connection.type === "relay") {
       throw new Error("Cannot probe a relay connection without a server id.");
@@ -2101,6 +2126,18 @@ export class HostRuntimeStore {
       connection: input.connection,
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     });
+    if (input.claimedBy) {
+      try {
+        await this.confirmClaimedServerId({
+          serverId,
+          connection: input.connection,
+          endpoint: input.claimedBy.endpoint,
+        });
+      } catch (error) {
+        await client.close().catch(() => undefined);
+        throw error;
+      }
+    }
     const profile = await this.upsertHostConnection({
       serverId,
       label: input.label ?? hostname ?? undefined,
@@ -2109,6 +2146,27 @@ export class HostRuntimeStore {
       existingClient: client,
     });
     return { profile, serverId, hostname };
+  }
+
+  private async confirmClaimedServerId(input: {
+    serverId: string;
+    connection: HostConnection;
+    endpoint: string;
+  }): Promise<void> {
+    await this.loadRegistry();
+    const savedAs = this.hosts.find(
+      (host) => host.serverId !== input.serverId && hostHasConnection(host, input.connection),
+    );
+    if (savedAs) {
+      throw new HostIdentityChangedError(input.endpoint, savedAs.label, input.serverId);
+    }
+    const approved = await this.hostConfirmations.confirmConnection({
+      serverId: input.serverId,
+      connection: input.connection,
+      endpoint: input.endpoint,
+      savedHosts: this.hosts,
+    });
+    if (!approved) throw new HostConnectionDeclinedError();
   }
 
   async probeAndUpsertDirectConnection(input: {
@@ -2128,6 +2186,7 @@ export class HostRuntimeStore {
         endpoint,
         useTls: input.useTls ?? false,
       },
+      claimedBy: { endpoint },
     });
   }
 
@@ -2144,6 +2203,7 @@ export class HostRuntimeStore {
       // set-password` keeps what it reads), so whitespace is significant here.
       password: input.password ? input.password : undefined,
       connection: createRemoteSshHostConnection(input),
+      claimedBy: { endpoint: input.host },
     });
   }
 
@@ -2556,15 +2616,27 @@ export class HostRuntimeStore {
       if (this.hostObservations.get(serverId)?.client !== client) return;
       for (const target of directory.hosts) {
         if (!target.serverId || target.serverId === serverId) continue;
+        // The origin names each target's server id and carries all of its traffic, so a
+        // listed target never joins a saved host: that would hand the origin the saved
+        // host's identity, approvals and local-only actions.
+        const routed: HostConnection = {
+          id: `via:${serverId}`,
+          type: "routed",
+          originServerId: serverId,
+        };
+        const saved = this.hosts.find((candidate) => candidate.serverId === target.serverId);
+        if (saved && !hostHasConnection(saved, routed)) {
+          console.warn("[HostRuntime] ignoring routed host that claims a saved host", {
+            origin: serverId,
+            target: target.serverId,
+          });
+          continue;
+        }
         const next = upsertHostConnectionInProfiles({
           profiles: this.hosts,
           serverId: target.serverId,
           label: target.label ?? undefined,
-          connection: {
-            id: `via:${serverId}`,
-            type: "routed",
-            originServerId: serverId,
-          },
+          connection: routed,
         });
         if (next !== this.hosts) {
           this.setHostsAndSync(next);
@@ -3000,6 +3072,15 @@ export function useHostRuntimeIsConnected(serverId: string): boolean {
     (onStoreChange) => store.subscribe(serverId, onStoreChange),
     () => isHostRuntimeConnected(store.getSnapshot(serverId)),
     () => isHostRuntimeConnected(store.getSnapshot(serverId)),
+  );
+}
+
+export function useHostRuntimeActiveConnectionId(serverId: string): string | null {
+  const store = getHostRuntimeStore();
+  return useSyncExternalStore(
+    (onStoreChange) => store.subscribe(serverId, onStoreChange),
+    () => store.getSnapshot(serverId)?.activeConnectionId ?? null,
+    () => store.getSnapshot(serverId)?.activeConnectionId ?? null,
   );
 }
 
