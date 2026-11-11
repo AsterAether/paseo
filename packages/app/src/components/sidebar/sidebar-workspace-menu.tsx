@@ -265,6 +265,7 @@ function SidebarWorkspaceMenuItems({
       <OpenInFileManagerMenuItem
         surface={surface}
         path={openInFileManagerPath}
+        serverId={serverId}
         testID={`sidebar-workspace-menu-open-folder-${workspaceKey}`}
       />
       {onArchive ? (

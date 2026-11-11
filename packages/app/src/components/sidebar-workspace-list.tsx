@@ -588,6 +588,7 @@ function ProjectMenuItems({
       <OpenInFileManagerMenuItem
         surface={surface}
         path={projectPath}
+        serverId={settingsTarget?.serverId}
         testID={`sidebar-project-menu-open-folder-${projectViewKey}`}
       />
       <ProjectMenuItem
