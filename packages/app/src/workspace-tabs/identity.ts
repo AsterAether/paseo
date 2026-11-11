@@ -119,6 +119,7 @@ export function workspaceTabTargetsEqual(
     return (
       left.pluginId === right.pluginId &&
       left.panelId === right.panelId &&
+      left.pluginServerId === right.pluginServerId &&
       left.context === right.context &&
       (left.context === "workspace" ||
         (right.context === "agent" && left.agentId === right.agentId))
@@ -223,7 +224,10 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
     return target.kind;
   }
   if (target.kind === "plugin") {
-    const identity = `${target.pluginId.length}_${target.pluginId}_${target.panelId.length}_${target.panelId}`;
+    const owner = target.pluginServerId
+      ? `_${target.pluginServerId.length}_${target.pluginServerId}`
+      : "";
+    const identity = `${target.pluginId.length}_${target.pluginId}_${target.panelId.length}_${target.panelId}${owner}`;
     return target.context === "workspace"
       ? `plugin_workspace_${identity}`
       : `plugin_agent_${identity}_${target.agentId.length}_${target.agentId}`;
@@ -237,11 +241,15 @@ function normalizePluginTabTarget(
   const pluginId = trimNonEmpty(value.pluginId);
   const panelId = trimNonEmpty(value.panelId);
   if (!pluginId || !panelId) return null;
+  const pluginServerId = trimNonEmpty(value.pluginServerId);
+  const owner = pluginServerId ? { pluginServerId } : {};
   if (value.context === "workspace") {
-    return { kind: "plugin", pluginId, panelId, context: "workspace" };
+    return { kind: "plugin", pluginId, panelId, ...owner, context: "workspace" };
   }
   const agentId = trimNonEmpty(value.agentId);
-  return agentId ? { kind: "plugin", pluginId, panelId, context: "agent", agentId } : null;
+  return agentId
+    ? { kind: "plugin", pluginId, panelId, ...owner, context: "agent", agentId }
+    : null;
 }
 
 function trimNonEmpty(value: string | null | undefined): string | null {
