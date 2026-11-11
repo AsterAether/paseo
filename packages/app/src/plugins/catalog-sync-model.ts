@@ -13,6 +13,16 @@ interface CatalogSyncInput {
     PluginRegistry,
     "installCatalog" | "getSnapshot" | "removeHost" | "setCatalogStatus"
   >;
+  trust: CatalogTrust;
+}
+
+/** What catalog sync needs from the plugin approval gate. */
+export interface CatalogTrust {
+  /** sha256 of a client bundle; computed here, never taken from the daemon. */
+  hashBundle(clientBundle: string): Promise<string>;
+  hydrate(): Promise<void>;
+  /** Fires when an approval is granted, revoked or loaded. */
+  subscribe(listener: () => void): () => void;
 }
 
 export function syncPluginCatalog({
@@ -22,6 +32,7 @@ export function syncPluginCatalog({
   connected,
   supported,
   registry,
+  trust,
 }: CatalogSyncInput): () => void {
   if (!supported || !audio) {
     registry.removeHost(serverId);
@@ -40,9 +51,21 @@ export function syncPluginCatalog({
       registry.setCatalogStatus(serverId, "loading");
       return client
         .getPluginCatalog()
-        .then((catalog) => {
+        .then(async (catalog) => {
+          // The approval gate keys on sha256(clientBundle); hash each bundle before
+          // handing the catalog to the synchronous registry.
+          const hashes: Record<string, string> = {};
+          await Promise.all(
+            catalog.map(async (entry) => {
+              if (entry.clientBundle) hashes[entry.id] = await trust.hashBundle(entry.clientBundle);
+            }),
+          );
           if (!cancelled) {
-            registry.installCatalog(serverId, catalog, { ...installationOptions, replacePluginId });
+            registry.installCatalog(serverId, catalog, {
+              ...installationOptions,
+              replacePluginId,
+              hashes,
+            });
             registry.setCatalogStatus(serverId, "ready");
           }
           return undefined;
@@ -57,6 +80,12 @@ export function syncPluginCatalog({
     });
     return refreshQueue;
   }
+  // An approval granted or revoked in the UI changes what may evaluate, so re-run the
+  // catalog through the gate whenever trust changes or hydrates.
+  void trust.hydrate();
+  const unsubscribeTrust = trust.subscribe(() => {
+    void refresh();
+  });
   const observation = client.observeEvents([
     "status.plugin_catalog_changed",
     "status.plugin_settings_changed",
@@ -95,6 +124,7 @@ export function syncPluginCatalog({
   });
   return () => {
     cancelled = true;
+    unsubscribeTrust();
     void observation
       .release()
       .catch((error) => console.warn("[Plugins] Failed to release catalog", error));

@@ -14,6 +14,8 @@ function registry(version: string) {
   const result = new PluginRegistry({
     localeSource: { getLocale: () => "en", subscribe: () => () => {} },
     version,
+    // These tests cover requirement gating, not the trust gate: approve all.
+    trust: { isApproved: () => true, hasApprovalForPlugin: () => false },
     createRuntime(installation) {
       starts++;
       return {
