@@ -176,8 +176,18 @@ class FakeDaemonClient {
     hosts: [],
   });
 
+  private hostListeners = new Set<(message: SessionOutboundMessage) => void>();
+
   observeHosts() {
-    return subscriptionFixture(this.hostDirectory, () => () => {});
+    return subscriptionFixture(this.hostDirectory, (receive) => {
+      this.hostListeners.add(receive);
+      return () => this.hostListeners.delete(receive);
+    });
+  }
+
+  emitHostsChanged(directory: HostDirectory): void {
+    const message = { type: "hosts.changed", payload: { directory } } as SessionOutboundMessage;
+    for (const listener of this.hostListeners) listener(message);
   }
 
   public ownedSubscriptions = true;
@@ -2197,6 +2207,57 @@ describe("HostRuntimeController", () => {
 });
 
 describe("HostRuntimeStore", () => {
+  it("drops a routed host once its origin's directory no longer lists it", async () => {
+    const origin = new FakeDaemonClient();
+    origin.setConnectionState({ status: "connected" });
+    origin.connectedHosts = true;
+    const target = (name: string) => ({
+      registrationId: `reg_${name}`,
+      serverId: `srv_${name}`,
+      label: `Fleet ${name}`,
+      source: { id: "user", key: name },
+      metadata: {},
+      enabled: true,
+      status: "online" as const,
+      targetDescription: `${name}:6767`,
+      lastOnlineAt: null,
+      nextRetryAt: null,
+      error: null,
+    });
+    origin.hostDirectory = Promise.resolve({
+      self: { serverId: "srv_a", label: "A" },
+      hosts: [target("b"), target("c")],
+    });
+    const store = new HostRuntimeStore({
+      storage: createMemoryHostRuntimeStorage(),
+      deps: {
+        createClient: ({ host }) =>
+          (host.serverId === "srv_a" ? origin : new FakeDaemonClient()) as unknown as DaemonClient,
+        connectToDaemon: async ({ host }) => ({
+          client: (host.serverId === "srv_a"
+            ? origin
+            : makeConnectedProbeClient(5)) as unknown as DaemonClient,
+          serverId: host.serverId,
+          hostname: host.label,
+        }),
+        getClientId: async () => "cid_fleet_prune",
+      },
+    });
+    const serverIds = () => store.getHosts().map((host) => host.serverId);
+    try {
+      await store.upsertDirectConnection({ serverId: "srv_a", endpoint: "a:6767" });
+      await waitForHostOnline(store, "srv_a");
+      await vi.waitFor(() => expect(serverIds()).toEqual(["srv_a", "srv_b", "srv_c"]));
+
+      origin.emitHostsChanged({ self: { serverId: "srv_a", label: "A" }, hosts: [target("c")] });
+
+      await vi.waitFor(() => expect(serverIds()).toEqual(["srv_a", "srv_c"]));
+      expect(store.getSnapshot("srv_b")).toBeNull();
+    } finally {
+      store.syncHosts([]);
+    }
+  });
+
   it.each([false, true])(
     "keeps B and C distinct with routed and direct candidates (B direct first: %s)",
     async (directFirst) => {

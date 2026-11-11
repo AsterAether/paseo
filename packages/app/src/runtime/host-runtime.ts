@@ -19,6 +19,7 @@ import {
   createRemoteSshHostConnection,
   normalizeStoredHostProfile,
   pinRelayProtectedSecurityInProfiles,
+  pruneRoutedConnectionsInProfiles,
   upsertHostConnectionInProfiles,
   hostHasConnection,
   registryHasConnection,
@@ -2614,6 +2615,17 @@ export class HostRuntimeStore {
     const observation = client.observeHosts();
     const apply = (directory: HostDirectory) => {
       if (this.hostObservations.get(serverId)?.client !== client) return;
+      // Every snapshot and change carries the whole directory: a host it no longer lists was
+      // removed on the daemon, and its route through it goes here too.
+      const pruned = pruneRoutedConnectionsInProfiles({
+        profiles: this.hosts,
+        originServerId: serverId,
+        listed: new Set(directory.hosts.flatMap((target) => target.serverId ?? [])),
+      });
+      if (pruned !== this.hosts) {
+        this.setHostsAndSync(pruned);
+        void this.persistHosts();
+      }
       for (const target of directory.hosts) {
         if (!target.serverId || target.serverId === serverId) continue;
         // The origin names each target's server id and carries all of its traffic, so a
