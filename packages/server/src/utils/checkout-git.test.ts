@@ -394,6 +394,72 @@ describe("checkout git utilities", () => {
     expect(records).toEqual([]);
   });
 
+  describe("worktree holder", () => {
+    function makeHolder(): string {
+      const holderDir = join(tempDir, "holder");
+      mkdirSync(holderDir, { recursive: true });
+      execFileSync("git", ["clone", "--bare", repoDir, join(holderDir, ".bare")]);
+      writeFileSync(join(holderDir, ".git"), "gitdir: ./.bare\n");
+      return holderDir;
+    }
+
+    function warnings(): { logger: pino.Logger; records: unknown[] } {
+      const records: unknown[] = [];
+      const logger = pino(
+        { level: "warn" },
+        {
+          write(line: string) {
+            records.push(JSON.parse(line));
+          },
+        },
+      );
+      return { logger, records };
+    }
+
+    it("reads a holder as git through its main worktree, without warning", async () => {
+      const holderDir = makeHolder();
+      execFileSync("git", ["worktree", "add", "feat", "-b", "feat"], { cwd: holderDir });
+      execFileSync("git", ["worktree", "add", "main", "main"], { cwd: holderDir });
+      writeFileSync(join(holderDir, "main", "file.txt"), "changed\n");
+      const { logger, records } = warnings();
+
+      const status = await getCheckoutStatus(holderDir, { logger });
+
+      expect(status).toMatchObject({
+        isGit: true,
+        repoRoot: join(holderDir, "main"),
+        currentBranch: "main",
+        isDirty: true,
+      });
+      expect(records).toEqual([]);
+    });
+
+    it("reads a holder with no worktree as non-git", async () => {
+      const holderDir = makeHolder();
+      const { logger, records } = warnings();
+
+      await expect(getCheckoutStatus(holderDir, { logger })).resolves.toEqual({ isGit: false });
+      expect(records).toEqual([]);
+    });
+
+    it("reads a holder's worktree as itself, with the holder's main worktree as its main repo", async () => {
+      const holderDir = makeHolder();
+      execFileSync("git", ["worktree", "add", "feat", "-b", "feat"], { cwd: holderDir });
+      execFileSync("git", ["worktree", "add", "main", "main"], { cwd: holderDir });
+
+      const status = await getCheckoutStatus(join(holderDir, "feat"));
+
+      expect(status).toMatchObject({
+        isGit: true,
+        repoRoot: join(holderDir, "feat"),
+        currentBranch: "feat",
+      });
+      expect(realpathSync.native(status.mainRepoRoot ?? "")).toBe(
+        realpathSync.native(join(holderDir, "main")),
+      );
+    });
+  });
+
   it.runIf(
     process.platform !== "win32" &&
       existsSync("/dev/shm") &&
